@@ -1,89 +1,90 @@
-// IIR Speech Filter (WebAudio) — real-time chain + wav recording + plots
+// IIR Speech Filter (WebAudio) — Butterworth order control, phase plot, 16k WAV resampler, PWA-friendly.
 
-// UI helpers
-const $ = (id) => document.getElementById(id);
-const setStatus = (m) => { $('status').textContent = m; };
+const $ = id => document.getElementById(id);
+const setStatus = m => $('status').textContent = m;
 
-let ctx, src, rawTap, filtTap, gainMute, dest, analyserWave, analyserFreq;
-let hp, lp, notch;
-let running = false, recording = false;
-let sampleRate = 48000;
+let ctx, src, dest, analyserWave, analyserFreq, rawTap, filtTap, muteGain;
+let hpSections=[], lpSections=[], notch;
+let running=false, recording=false, sampleRate=48000;
 
-// PCM capture buffers (Float32)
-let rawBuf = [];
-let filtBuf = [];
-let rawBlobURL = null, filtBlobURL = null;
+// capture buffers
+let rawBuf=[], filtBuf=[];
+let rawURL=null, filtURL=null;
 
 const ui = {
-  lowcut: $('lowcut'), highcut: $('highcut'), lpCut: $('lpCut'),
-  notchF: $('notchF'), notchQ: $('notchQ'),
-  enableFilter: $('enableFilter'), lpOnly: $('lpOnly'), enableNotch: $('enableNotch'),
-  start: $('startBtn'), stop: $('stopBtn'),
-  tel: $('telBtn'), pod: $('podBtn'),
-  rec: $('recBtn'), save: $('saveBtn'),
-  playRaw: $('playRawBtn'), playFilt: $('playFiltBtn'),
-  canvSpec: $('spectrogram'), canvWave: $('waveform'), canvResp: $('response')
+  lowcut:$('lowcut'), highcut:$('highcut'), lpCut:$('lpCut'),
+  hpOrder:$('hpOrder'), lpOrder:$('lpOrder'),
+  notchF:$('notchF'), notchQ:$('notchQ'),
+  enableFilter:$('enableFilter'), lpOnly:$('lpOnly'), enableNotch:$('enableNotch'),
+  showPhase:$('showPhase'),
+  wavRate:$('wavRate'),
+  start:$('startBtn'), stop:$('stopBtn'),
+  tel:$('telBtn'), pod:$('podBtn'),
+  rec:$('recBtn'), save:$('saveBtn'),
+  playRaw:$('playRawBtn'), playFilt:$('playFiltBtn'),
+  canvSpec:$('spectrogram'), canvWave:$('waveform'), canvResp:$('response'), canvPhase:$('phase')
 };
 
-// ===== RBJ biquad coefficient helpers =====
-function biquadLP(fs, f0, Q=Math.SQRT1_2){
-  const w0 = 2*Math.PI*f0/fs, c = Math.cos(w0), s = Math.sin(w0), a = s/(2*Q);
+// ===== Butterworth helpers (RBJ-style biquads with Butterworth Qs) =====
+function butterQList(N){ // N even
+  const L = Math.floor(N/2), out=[];
+  for(let k=1;k<=L;k++){ out.push(1/(2*Math.cos((2*k-1)*Math.PI/(2*N)))); }
+  return out;
+}
+function biquadLP(fs,f0,Q=Math.SQRT1_2){
+  const w0=2*Math.PI*f0/fs, c=Math.cos(w0), s=Math.sin(w0), a=s/(2*Q);
   let b0=(1-c)/2, b1=1-c, b2=(1-c)/2, a0=1+a, a1=-2*c, a2=1-a;
   return norm(b0,b1,b2,a0,a1,a2);
 }
-function biquadHP(fs, f0, Q=Math.SQRT1_2){
-  const w0 = 2*Math.PI*f0/fs, c = Math.cos(w0), s = Math.sin(w0), a = s/(2*Q);
+function biquadHP(fs,f0,Q=Math.SQRT1_2){
+  const w0=2*Math.PI*f0/fs, c=Math.cos(w0), s=Math.sin(w0), a=s/(2*Q);
   let b0=(1+c)/2, b1=-(1+c), b2=(1+c)/2, a0=1+a, a1=-2*c, a2=1-a;
   return norm(b0,b1,b2,a0,a1,a2);
 }
-function biquadNotch(fs, f0, Q=30){
-  const w0 = 2*Math.PI*f0/fs, c = Math.cos(w0), s = Math.sin(w0), a = s/(2*Q);
+function biquadNotch(fs,f0,Q=30){
+  const w0=2*Math.PI*f0/fs, c=Math.cos(w0), s=Math.sin(w0), a=s/(2*Q);
   let b0=1, b1=-2*c, b2=1, a0=1+a, a1=-2*c, a2=1-a;
   return norm(b0,b1,b2,a0,a1,a2);
 }
-function norm(b0,b1,b2,a0,a1,a2){
-  return { b0:b0/a0, b1:b1/a0, b2:b2/a0, a1:a1/a0, a2:a2/a0 };
+function norm(b0,b1,b2,a0,a1,a2){ return { b0:b0/a0, b1:b1/a0, b2:b2/a0, a1:a1/a0, a2:a2/a0 }; }
+
+// complex response for a biquad
+function H_biquad(coeffs, w){
+  const zr = Math.cos(-w), zi = Math.sin(-w);
+  const z2r = Math.cos(-2*w), z2i = Math.sin(-2*w);
+  // numerator n = b0 + b1 z^-1 + b2 z^-2
+  let nr = coeffs.b0 + coeffs.b1*zr + coeffs.b2*z2r;
+  let ni =           coeffs.b1*zi + coeffs.b2*z2i;
+  // denominator d = 1 + a1 z^-1 + a2 z^-2
+  let dr = 1 + coeffs.a1*zr + coeffs.a2*z2r;
+  let di =     coeffs.a1*zi + coeffs.a2*z2i;
+  // n/d
+  const den = dr*dr + di*di;
+  return { r:(nr*dr + ni*di)/den, i:(ni*dr - nr*di)/den };
 }
-function freqzBiquad(coeffs, freqs, fs){
-  // H(z)= (b0 + b1 z^-1 + b2 z^-2)/(1 + a1 z^-1 + a2 z^-2)
-  const out = new Float32Array(freqs.length);
-  for(let i=0;i<freqs.length;i++){
-    const w = 2*Math.PI*freqs[i]/fs;
-    const z1r = Math.cos(-w), z1i = Math.sin(-w);
-    const z2r = Math.cos(-2*w), z2i = Math.sin(-2*w);
-    // numerator
-    const nr = coeffs.b0 + coeffs.b1*z1r - coeffs.b1*0*z1i + coeffs.b2*z2r;
-    const ni = coeffs.b1*z1i + coeffs.b2*z2i;
-    // denominator
-    const dr = 1 + coeffs.a1*z1r + coeffs.a2*z2r;
-    const di = coeffs.a1*z1i + coeffs.a2*z2i;
-    const mag = Math.sqrt((nr*nr+ni*ni)/(dr*dr+di*di));
-    out[i] = 20*Math.log10(mag+1e-12);
-  }
+function mulC(a,b){ return { r:a.r*b.r - a.i*b.i, i:a.r*b.i + a.i*b.r }; }
+function mag(x){ return Math.hypot(x.r, x.i); }
+function phase(x){ return Math.atan2(x.i, x.r); }
+function unwrap(ph){ // simple unwrap
+  const out=new Float32Array(ph.length); let off=0; out[0]=ph[0];
+  for(let i=1;i<ph.length;i++){ let d=ph[i]-ph[i-1]; if(d>Math.PI) off-=2*Math.PI; else if(d<-Math.PI) off+=2*Math.PI; out[i]=ph[i]+off; }
   return out;
 }
-function cascadeResponse(parts, freqs, fs){
-  const acc = new Float32Array(freqs.length).fill(0);
-  for(const p of parts){
-    const h = freqzBiquad(p, freqs, fs);
-    for(let i=0;i<acc.length;i++) acc[i]+=h[i];
-  }
-  return acc;
-}
 
-// ===== Drawing helpers =====
+// ===== Drawing =====
 const gSpec = ui.canvSpec.getContext('2d');
 const gWave = ui.canvWave.getContext('2d');
 const gResp = ui.canvResp.getContext('2d');
+const gPhase = ui.canvPhase.getContext('2d');
 
-function drawWave(array){
+function drawWave(arr){
   const {width:w,height:h} = ui.canvWave;
   gWave.clearRect(0,0,w,h);
-  gWave.strokeStyle = '#60a5fa'; gWave.lineWidth = 2;
+  gWave.strokeStyle='#60a5fa'; gWave.lineWidth=2;
   gWave.beginPath();
-  for(let i=0;i<array.length;i++){
-    const x = i/array.length*w;
-    const y = (0.5 - array[i]/2)*h;
+  for(let i=0;i<arr.length;i++){
+    const x=i/arr.length*w;
+    const y=(0.5 - arr[i]/2)*h;
     if(i===0) gWave.moveTo(x,y); else gWave.lineTo(x,y);
   }
   gWave.stroke();
@@ -91,136 +92,184 @@ function drawWave(array){
 
 function drawSpectrogram(fft){
   const {width:w,height:h} = ui.canvSpec;
-  // scroll left 1px
   const img = gSpec.getImageData(1,0,w-1,h);
   gSpec.putImageData(img,0,0);
-  // new column on right (map magnitude to color)
   for(let y=0;y<h;y++){
-    const bin = Math.floor(y/ h * fft.length);
-    const v = fft[fft.length-1-bin]/255; // 0..1
-    const hue = 260 - 260*v; // purple->yellow
-    gSpec.fillStyle = `hsl(${hue} 90% ${Math.floor(20+60*v)}%)`;
-    gSpec.fillRect(w-1, y, 1, 1);
+    const bin=Math.floor(y/h*fft.length);
+    const v=fft[fft.length-1-bin]/255;
+    const hue=260-260*v;
+    gSpec.fillStyle=`hsl(${hue} 90% ${20+60*v}%)`;
+    gSpec.fillRect(w-1,y,1,1);
   }
 }
 
-function drawResponse(){
+function drawResponseAndPhase(){
   if(!ctx) return;
-  const {width:w,height:h} = ui.canvResp;
-  gResp.clearRect(0,0,w,h);
   const fs = sampleRate;
+  const w = ui.canvResp.width, h = ui.canvResp.height;
+  const w2 = ui.canvPhase.width, h2 = ui.canvPhase.height;
+  gResp.clearRect(0,0,w,h); gPhase.clearRect(0,0,w2,h2);
+
   const freqs = new Float32Array(w);
   for(let i=0;i<w;i++) freqs[i] = i/w*(fs/2);
 
-  const parts = [];
-  if (ui.enableFilter.checked){
-    if (ui.lpOnly.checked){
-      parts.push(biquadLP(fs, +ui.lpCut.value));
-    } else {
-      parts.push(biquadHP(fs, +ui.lowcut.value));
-      parts.push(biquadLP(fs, +ui.highcut.value));
+  // build digital sections for plotting
+  const sections = [];
+  if(ui.enableFilter.checked){
+    if(ui.lpOnly.checked){
+      butterQList(+ui.lpOrder.value).forEach(Q=>sections.push(biquadLP(fs,+ui.lpCut.value,Q)));
+    }else{
+      butterQList(+ui.hpOrder.value).forEach(Q=>sections.push(biquadHP(fs,+ui.lowcut.value,Q)));
+      butterQList(+ui.lpOrder.value).forEach(Q=>sections.push(biquadLP(fs,+ui.highcut.value,Q)));
     }
   }
-  if (ui.enableNotch.checked){
-    parts.push(biquadNotch(fs, +ui.notchF.value, +ui.notchQ.value));
-  }
+  if(ui.enableNotch.checked) sections.push(biquadNotch(fs,+ui.notchF.value,+ui.notchQ.value));
 
-  const dB = parts.length ? cascadeResponse(parts, freqs, fs) : new Float32Array(freqs.length);
-  // axes
-  gResp.strokeStyle = 'rgba(255,255,255,.15)'; gResp.lineWidth=1;
+  const dB = new Float32Array(freqs.length);
+  const ph = new Float32Array(freqs.length);
+  for(let i=0;i<freqs.length;i++){
+    const w0 = 2*Math.PI*freqs[i]/fs;
+    let H = {r:1,i:0};
+    for(const s of sections) H = mulC(H, H_biquad(s,w0));
+    dB[i] = 20*Math.log10(mag(H)+1e-12);
+    ph[i] = phase(H);
+  }
+  const phu = unwrap(ph);
+
+  // magnitude
+  gResp.strokeStyle='rgba(255,255,255,.15)'; gResp.lineWidth=1;
   gResp.beginPath(); gResp.moveTo(0,h-40); gResp.lineTo(w,h-40); gResp.stroke();
   gResp.beginPath(); gResp.moveTo(0,0); gResp.lineTo(0,h); gResp.stroke();
 
-  // plot
-  gResp.strokeStyle = '#60a5fa'; gResp.lineWidth=2;
-  gResp.beginPath();
+  gResp.strokeStyle='#60a5fa'; gResp.lineWidth=2; gResp.beginPath();
   for(let i=0;i<w;i++){
     const db = Math.max(-100, Math.min(10, dB[i]));
     const y = (1-(db+100)/110)*h;
     if(i===0) gResp.moveTo(i,y); else gResp.lineTo(i,y);
+  } gResp.stroke();
+
+  // phase
+  if(ui.showPhase.checked){
+    const deg = new Float32Array(phu.length); for(let i=0;i<deg.length;i++) deg[i]=phu[i]*180/Math.PI;
+    // normalize to visible window
+    let min=deg[0], max=deg[0]; for(const v of deg){ if(v<min)min=v; if(v>max)max=v; }
+    const pad=20; if(max-min<180) { max=min+180; }
+    gPhase.strokeStyle='rgba(255,255,255,.15)'; gPhase.lineWidth=1;
+    gPhase.beginPath(); gPhase.moveTo(0,h2-pad); gPhase.lineTo(w2,h2-pad); gPhase.stroke();
+    gPhase.beginPath(); gPhase.moveTo(0,0); gPhase.lineTo(0,h2); gPhase.stroke();
+
+    gPhase.strokeStyle='#9ae6b4'; gPhase.lineWidth=2; gPhase.beginPath();
+    for(let i=0;i<w;i++){
+      const y = (1-(deg[i]-min)/(max-min))*h2;
+      if(i===0) gPhase.moveTo(i,y); else gPhase.lineTo(i,y);
+    } gPhase.stroke();
   }
-  gResp.stroke();
 }
 
 // ===== Audio graph =====
-async function start() {
-  if (running) return;
-  setStatus('Starting…');
+async function start(){
+  if(running) return;
+  setStatus('Requesting microphone…');
   const stream = await navigator.mediaDevices.getUserMedia({audio:true});
   ctx = new (window.AudioContext || window.webkitAudioContext)();
   sampleRate = ctx.sampleRate;
 
-  // Worklet for capture
-  await ctx.audioWorklet.addModule('worklet-processor.js');
+  await ctx.audioWorklet.addModule('worklet-processor.js?v=1');
 
   src = ctx.createMediaStreamSource(stream);
-
-  // DSP nodes
-  hp = ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value = +ui.lowcut.value; hp.Q.value=Math.SQRT1_2;
-  lp = ctx.createBiquadFilter(); lp.type='lowpass';  lp.frequency.value = +ui.highcut.value; lp.Q.value=Math.SQRT1_2;
-  notch = ctx.createBiquadFilter(); notch.type='notch'; notch.frequency.value=+ui.notchF.value; notch.Q.value=+ui.notchQ.value;
-
-  analyserWave = ctx.createAnalyser(); analyserWave.fftSize = 2048;
-  analyserFreq = ctx.createAnalyser(); analyserFreq.fftSize = 1024;
   dest = ctx.destination;
+  analyserWave = ctx.createAnalyser(); analyserWave.fftSize=2048;
+  analyserFreq = ctx.createAnalyser(); analyserFreq.fftSize=1024;
+  notch = ctx.createBiquadFilter(); notch.type='notch';
 
-  // Taps
-  rawTap = new AudioWorkletNode(ctx, 'capture-processor', { processorOptions: { label: 'raw', passThrough: false }});
-  filtTap = new AudioWorkletNode(ctx, 'capture-processor', { processorOptions: { label: 'filt', passThrough: true }});
-  rawTap.port.onmessage = onCaptured;
-  filtTap.port.onmessage = onCaptured;
+  rawTap = new AudioWorkletNode(ctx,'capture-processor',{processorOptions:{label:'raw',passThrough:false}});
+  filtTap = new AudioWorkletNode(ctx,'capture-processor',{processorOptions:{label:'filt',passThrough:true}});
+  rawTap.port.onmessage = onCaptured; filtTap.port.onmessage = onCaptured;
+  muteGain = ctx.createGain(); muteGain.gain.value=0;
 
-  // Sink for rawTap (must connect to be active, mute to 0)
-  gainMute = ctx.createGain(); gainMute.gain.value = 0.0;
+  // Initial build
+  rebuildCascade();
+  buildRouting();
 
-  // Routing
-  src.connect(rawTap).connect(gainMute).connect(dest); // capture raw silently
-  // Filter chain
-  let chain = src;
-  if (ui.enableFilter.checked){
-    if (ui.lpOnly.checked){
-      chain = chain.connect(lp);
-    } else {
-      chain = chain.connect(hp).connect(lp);
-    }
-  }
-  if (ui.enableNotch.checked){
-    chain = chain.connect(notch);
-  }
-  chain.connect(filtTap).connect(analyserWave).connect(dest);
-  chain.connect(analyserFreq);
-
-  running = true;
-  ui.start.disabled = true; ui.stop.disabled = false;
-  drawResponse();
-  loopVisuals();
+  running=true; ui.start.disabled=true; ui.stop.disabled=false;
   setStatus(`Running @ ${sampleRate.toFixed(0)} Hz`);
+  loopVisuals();
+  drawResponseAndPhase();
 }
 
-function stop() {
+function stop(){
   if(!running) return;
-  ctx.close(); running = false;
-  ui.start.disabled = false; ui.stop.disabled = true;
+  try{ ctx.close(); }catch{}
+  running=false; ui.start.disabled=false; ui.stop.disabled=true;
   setStatus('Stopped.');
 }
 
-// capture handler
-function onCaptured(ev){
-  if (!recording) return;
-  const {label, samples} = ev.data;
-  if (label==='raw') rawBuf.push(samples);
-  else if (label==='filt') filtBuf.push(samples);
+function onCaptured(e){
+  if(!recording) return;
+  const {label, samples} = e.data;
+  if(label==='raw') rawBuf.push(samples);
+  else if(label==='filt') filtBuf.push(samples);
+}
+
+// Build cascades from order selects
+function rebuildCascade(){
+  hpSections=[]; lpSections=[];
+  if(ctx){
+    const hpN = Math.max(0, (+ui.hpOrder.value|0));
+    const lpN = Math.max(0, (+ui.lpOrder.value|0));
+    const hpL = Math.floor(hpN/2), lpL=Math.floor(lpN/2);
+
+    for(let i=0;i<hpL;i++){ const n = ctx.createBiquadFilter(); n.type='highpass'; hpSections.push(n); }
+    for(let i=0;i<lpL;i++){ const n = ctx.createBiquadFilter(); n.type='lowpass';  lpSections.push(n); }
+  }
+  updateFilterParams();
+}
+
+function updateFilterParams(){
+  if(!ctx) return;
+  // set frequencies and Q (Butterworth)
+  const hpQs = butterQList(+ui.hpOrder.value);
+  const lpQs = butterQList(+ui.lpOrder.value);
+  hpSections.forEach((n,i)=>{ n.frequency.value=+ui.lowcut.value; n.Q.value=hpQs[i]||Math.SQRT1_2; });
+  lpSections.forEach((n,i)=>{ n.frequency.value=+ui.highcut.value; n.Q.value=lpQs[i]||Math.SQRT1_2; });
+  notch.frequency.value=+ui.notchF.value; notch.Q.value=+ui.notchQ.value;
+  drawResponseAndPhase();
+}
+
+function buildRouting(){
+  if(!ctx) return;
+  // Disconnect previous
+  try{ src.disconnect(); rawTap.disconnect(); muteGain.disconnect(); analyserWave.disconnect(); analyserFreq.disconnect(); }catch{}
+  // raw capture silent
+  src.connect(rawTap).connect(muteGain).connect(ctx.destination);
+
+  // chain
+  let chain = src;
+  if(ui.enableFilter.checked){
+    if(ui.lpOnly.checked){
+      // use lp only (frequency from lpCut)
+      lpSections.forEach((n,i)=>{
+        n.frequency.value = +ui.lpCut.value;
+      });
+      for(const n of lpSections) chain = chain.connect(n);
+    }else{
+      for(const n of hpSections) chain = chain.connect(n);
+      for(const n of lpSections) chain = chain.connect(n);
+    }
+  }
+  if(ui.enableNotch.checked) chain = chain.connect(notch);
+
+  chain.connect(filtTap).connect(analyserWave).connect(ctx.destination);
+  chain.connect(analyserFreq);
 }
 
 // visuals loop
 function loopVisuals(){
-  if (!running) return;
-  // waveform
+  if(!running) return;
   const tbuf = new Float32Array(analyserWave.fftSize);
   analyserWave.getFloatTimeDomainData(tbuf);
   drawWave(tbuf);
 
-  // spectrogram (magnitude)
   const fbuf = new Uint8Array(analyserFreq.frequencyBinCount);
   analyserFreq.getByteFrequencyData(fbuf);
   drawSpectrogram(fbuf);
@@ -228,118 +277,99 @@ function loopVisuals(){
   requestAnimationFrame(loopVisuals);
 }
 
-// update nodes + response when UI changes
-function refreshNodes(){
-  if (!ctx || !running) return drawResponse();
-  hp.frequency.value = +ui.lowcut.value;
-  lp.frequency.value = +ui.highcut.value;
-  notch.frequency.value = +ui.notchF.value;
-  notch.Q.value = +ui.notchQ.value;
+// Presets
+function telephone(){ ui.lowcut.value=300; ui.highcut.value=3400; ui.lpCut.value=4000; ui.notchF.value=50; ui.notchQ.value=30; updateFilterParams(); buildRouting(); }
+function podcast(){ ui.lowcut.value=80; ui.highcut.value=8000; ui.lpCut.value=6000; ui.notchF.value=50; ui.notchQ.value=35; updateFilterParams(); buildRouting(); }
 
-  // Rebuild chain for enable/disable toggles
-  // Disconnect everything first (safe in this small graph)
-  try { src.disconnect(); } catch{}
-  try { rawTap.disconnect(); gainMute.disconnect(); } catch{}
-  try { analyserWave.disconnect(); analyserFreq.disconnect(); } catch{}
-
-  src.connect(rawTap).connect(gainMute).connect(ctx.destination);
-
-  let chain = src;
-  if (ui.enableFilter.checked){
-    if (ui.lpOnly.checked){ chain = chain.connect(lp); }
-    else { chain = chain.connect(hp).connect(lp); }
-  }
-  if (ui.enableNotch.checked){ chain = chain.connect(notch); }
-
-  chain.connect(filtTap).connect(analyserWave).connect(ctx.destination);
-  chain.connect(analyserFreq);
-
-  drawResponse();
-}
-
-// presets
-function telephone(){ ui.lowcut.value=300; ui.highcut.value=3400; ui.lpCut.value=4000; ui.notchF.value=50; ui.notchQ.value=30; refreshNodes(); }
-function podcast(){ ui.lowcut.value=80; ui.highcut.value=8000; ui.lpCut.value=6000; ui.notchF.value=50; ui.notchQ.value=35; refreshNodes(); }
-
-// ===== Recording / WAV =====
-function startStopRecording(){
-  if (!running){ setStatus('Start mic first.'); return; }
-  recording = !recording;
-  if (recording){
-    rawBuf = []; filtBuf = [];
-    ui.rec.textContent = 'Stop Recording';
-    ui.save.disabled = true; ui.playRaw.disabled = true; ui.playFilt.disabled = true;
-    setStatus('Recording raw & filtered…');
-  } else {
-    ui.rec.textContent = 'Start Recording';
-    ui.save.disabled = false; ui.playRaw.disabled = false; ui.playFilt.disabled = false;
+// Recording
+function toggleRecord(){
+  if(!running){ setStatus('Start mic first.'); return; }
+  recording=!recording;
+  if(recording){
+    rawBuf=[]; filtBuf=[];
+    ui.rec.textContent='Stop Recording';
+    ui.save.disabled=true; ui.playRaw.disabled=true; ui.playFilt.disabled=true;
+    setStatus('Recording…');
+  }else{
+    ui.rec.textContent='Start Recording';
+    ui.save.disabled=false; ui.playRaw.disabled=false; ui.playFilt.disabled=false;
     setStatus('Recording stopped.');
   }
 }
 
-function float32ToWavBlob(float32s, sr){
-  // concat
-  let total = 0; for(const b of float32s) total += b.length;
-  const pcm16 = new Int16Array(total);
-  let off=0;
-  for(const b of float32s){
-    for(let i=0;i<b.length;i++){
-      let s = Math.max(-1, Math.min(1, b[i]));
-      pcm16[off++] = s<0 ? s*0x8000 : s*0x7FFF;
-    }
+function float32ToWavBlob(f32, sr){
+  const pcm16 = new Int16Array(f32.length);
+  for(let i=0;i<f32.length;i++){
+    let s=Math.max(-1,Math.min(1,f32[i])); pcm16[i]= s<0 ? s*0x8000 : s*0x7FFF;
   }
-  // WAV header
-  const byteRate = sr * 2;
-  const blockAlign = 2;
-  const dataSize = pcm16.length * 2;
-  const buf = new ArrayBuffer(44 + dataSize);
-  const dv = new DataView(buf);
-  let p=0;
-  function wStr(s){ for(let i=0;i<s.length;i++) dv.setUint8(p++, s.charCodeAt(i)); }
-  function w32(v){ dv.setUint32(p, v, true); p+=4; }
-  function w16(v){ dv.setUint16(p, v, true); p+=2; }
-
-  wStr('RIFF'); w32(36 + dataSize); wStr('WAVE');
-  wStr('fmt '); w32(16); w16(1); w16(1); w32(sr); w32(byteRate); w16(blockAlign); w16(16);
-  wStr('data'); w32(dataSize);
-  // PCM
-  new Uint8Array(buf, 44).set(new Uint8Array(pcm16.buffer));
-  return new Blob([buf], {type:'audio/wav'});
+  const byteRate=sr*2, blockAlign=2, dataSize=pcm16.length*2;
+  const buf=new ArrayBuffer(44+dataSize), dv=new DataView(buf); let p=0;
+  const W8=(v)=>{dv.setUint8(p++,v)}, W16=(v)=>{dv.setUint16(p,v,true);p+=2}, W32=(v)=>{dv.setUint32(p,v,true);p+=4};
+  "RIFF".split('').forEach(ch=>W8(ch.charCodeAt(0))); W32(36+dataSize);
+  "WAVEfmt ".split('').forEach(ch=>W8(ch.charCodeAt(0))); W32(16); W16(1); W16(1); W32(sr); W32(byteRate); W16(blockAlign); W16(16);
+  "data".split('').forEach(ch=>W8(ch.charCodeAt(0))); W32(dataSize);
+  new Uint8Array(buf,44).set(new Uint8Array(pcm16.buffer));
+  return new Blob([buf],{type:'audio/wav'});
 }
 
-function saveRecordings(){
-  const rawBlob = float32ToWavBlob(rawBuf, sampleRate);
-  const filtBlob = float32ToWavBlob(filtBuf, sampleRate);
-  // download
-  const a = document.createElement('a');
-  a.download = 'raw.wav'; a.href = URL.createObjectURL(rawBlob); a.click();
-  URL.revokeObjectURL(a.href);
-  const b = document.createElement('a');
-  b.download = 'filtered.wav'; b.href = URL.createObjectURL(filtBlob); b.click();
-  URL.revokeObjectURL(b.href);
-
-  rawBlobURL && URL.revokeObjectURL(rawBlobURL);
-  filtBlobURL && URL.revokeObjectURL(filtBlobURL);
-  rawBlobURL = URL.createObjectURL(rawBlob);
-  filtBlobURL = URL.createObjectURL(filtBlob);
-  ui.playRaw.disabled = false; ui.playFilt.disabled = false;
-  setStatus('Saved raw.wav and filtered.wav');
+async function concatToF32(chunks){
+  let total=0; for(const c of chunks) total+=c.length;
+  const out=new Float32Array(total); let o=0;
+  for(const c of chunks){ out.set(c,o); o+=c.length; }
+  return out;
 }
 
-function play(url){
-  const a = new Audio(url);
-  a.play();
+async function resampleToRate(f32, fromRate, toRate){
+  if(fromRate===toRate) return f32;
+  const length = Math.ceil(f32.length * toRate / fromRate);
+  // Offline resampler (high-quality)
+  const offline = new OfflineAudioContext(1, length, toRate);
+  const buf = offline.createBuffer(1, f32.length, fromRate);
+  buf.copyToChannel(f32,0);
+  const src = offline.createBufferSource(); src.buffer=buf; src.connect(offline.destination); src.start();
+  const rendered = await offline.startRendering();
+  const out = new Float32Array(rendered.length); rendered.copyFromChannel(out,0);
+  return out;
 }
 
-// ===== Wire up UI =====
-ui.start.onclick = start;
-ui.stop.onclick = stop;
-ui.tel.onclick = telephone;
-ui.pod.onclick = podcast;
-ui.rec.onclick = startStopRecording;
-ui.save.onclick = saveRecordings;
-ui.playRaw.onclick = () => rawBlobURL && play(rawBlobURL);
-ui.playFilt.onclick = () => filtBlobURL && play(filtBlobURL);
+async function saveRecordings(){
+  if(rawBuf.length===0 && filtBuf.length===0) { setStatus('Nothing recorded.'); return; }
+  const raw = await concatToF32(rawBuf);
+  const fil = await concatToF32(filtBuf);
+  const target = (ui.wavRate.value==='16000') ? 16000 : sampleRate;
 
-['lowcut','highcut','lpCut','notchF','notchQ','enableFilter','lpOnly','enableNotch']
-  .forEach(id => $(id).addEventListener('input', refreshNodes));
+  const rawR = await resampleToRate(raw, sampleRate, target);
+  const filR = await resampleToRate(fil, sampleRate, target);
+
+  const rawBlob=float32ToWavBlob(rawR, target);
+  const filBlob=float32ToWavBlob(filR, target);
+
+  const a=document.createElement('a'); a.download='raw.wav'; a.href=URL.createObjectURL(rawBlob); a.click(); URL.revokeObjectURL(a.href);
+  const b=document.createElement('a'); b.download='filtered.wav'; b.href=URL.createObjectURL(filBlob); b.click(); URL.revokeObjectURL(b.href);
+
+  rawURL && URL.revokeObjectURL(rawURL); filtURL && URL.revokeObjectURL(filtURL);
+  rawURL=URL.createObjectURL(rawBlob); filtURL=URL.createObjectURL(filBlob);
+  ui.playRaw.disabled=false; ui.playFilt.disabled=false;
+  setStatus(`Saved WAVs @ ${target} Hz`);
+}
+
+function play(url){ new Audio(url).play(); }
+
+// Wire up
+ui.start.onclick=start; ui.stop.onclick=stop;
+ui.tel.onclick=telephone; ui.pod.onclick=podcast;
+ui.rec.onclick=toggleRecord; ui.save.onclick=saveRecordings;
+ui.playRaw.onclick=()=>rawURL&&play(rawURL); ui.playFilt.onclick=()=>filtURL&&play(filtURL);
+
+// parameter changes
+['lowcut','highcut','lpCut','notchF','notchQ'].forEach(id => $(id).addEventListener('input', ()=>{ updateFilterParams(); buildRouting(); }));
+['enableFilter','lpOnly','enableNotch','showPhase','wavRate'].forEach(id => $(id).addEventListener('change', ()=>{ updateFilterParams(); buildRouting(); }));
+['hpOrder','lpOrder'].forEach(id => $(id).addEventListener('change', ()=>{ rebuildCascade(); buildRouting(); }));
+
+// visuals
+function loopVisuals(){
+  if(!running) return;
+  const tbuf=new Float32Array(analyserWave.fftSize); analyserWave.getFloatTimeDomainData(tbuf); drawWave(tbuf);
+  const fbuf=new Uint8Array(analyserFreq.frequencyBinCount); analyserFreq.getByteFrequencyData(fbuf); drawSpectrogram(fbuf);
+  requestAnimationFrame(loopVisuals);
+}
