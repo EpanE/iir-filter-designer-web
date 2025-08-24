@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IIR Speech Filter (Web)</title>
+  <meta name="theme-color" content="#0b1220" />
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
+
+  <style>
+    :root{
+      --bg:#0b1220; --card:#121a2b; --text:#e2e8f0; --muted:#94a3b8; --accent:#60a5fa;
+      --cardBorder:rgba(255,255,255,.06);
+    }
+    body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    .wrap{max-width:1200px;margin:24px auto;padding:0 16px}
+    .title{margin:0 0 6px;font-size:28px;font-weight:800}
+    .sub{margin:0 0 16px;color:var(--muted)}
+    .card{background:var(--card);border:1px solid var(--cardBorder);border-radius:16px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+    .grid{display:grid;gap:12px}
+    .grid.cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+    label{display:block;font-size:12px;color:var(--muted);margin:0 0 6px}
+    input[type="number"], input[type="range"], select{width:100%;box-sizing:border-box;background:#0e1626;border:1px solid rgba(255,255,255,.08);color:var(--text);border-radius:10px;padding:8px 10px}
+    .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+    button{background:linear-gradient(180deg,#1e3a8a,#1d4ed8);border:none;color:#fff;padding:10px 14px;border-radius:12px;font-weight:700;cursor:pointer}
+    button.secondary{background:#0e1626;border:1px solid rgba(255,255,255,.1)}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .check{display:flex;align-items:center;gap:6px}
+    .status{margin-top:8px;color:var(--muted)}
+    .plots{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+    .plot{background:#0e1626;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:8px}
+    canvas{width:100%;height:240px;background:#0e1626;border-radius:8px}
+    #response{height:220px}
+    @media (max-width: 900px){ .grid.cols-4{grid-template-columns:1fr 1fr} .plots{grid-template-columns:1fr} }
+    @media (max-width: 540px){ .grid.cols-4{grid-template-columns:1fr} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1 class="title">IIR Speech Filter (Web)</h1>
+    <p class="sub">Real-time HP/LP cascade + notch, live spectrogram & waveform, presets, and WAV recording — no installs.</p>
+
+    <div class="card">
+      <div class="grid cols-4">
+        <div>
+          <label>Lowcut (Hz)</label>
+          <input id="lowcut" type="number" value="300" step="10" min="20" max="10000">
+        </div>
+        <div>
+          <label>Highcut (Hz)</label>
+          <input id="highcut" type="number" value="3400" step="10" min="100" max="20000">
+        </div>
+        <div>
+          <label>Lowpass Cutoff (Hz) (LP-only)</label>
+          <input id="lpCut" type="number" value="4000" step="50" min="100" max="20000">
+        </div>
+        <div>
+          <label>Notch Freq (Hz)</label>
+          <input id="notchF" type="number" value="50" step="1" min="40" max="2000">
+        </div>
+      </div>
+
+      <div class="grid cols-4" style="margin-top:8px;">
+        <div>
+          <label>Notch Q</label>
+          <input id="notchQ" type="number" value="30" step="1" min="1" max="100">
+        </div>
+        <div class="check">
+          <input id="enableFilter" type="checkbox" checked><label for="enableFilter">Enable IIR Filter</label>
+        </div>
+        <div class="check">
+          <input id="lpOnly" type="checkbox"><label for="lpOnly">Lowpass Only</label>
+        </div>
+        <div class="check">
+          <input id="enableNotch" type="checkbox"><label for="enableNotch">Apply Notch</label>
+        </div>
+      </div>
+
+      <div class="row">
+        <button id="startBtn">Start Mic</button>
+        <button id="stopBtn" class="secondary" disabled>Stop</button>
+        <button id="telBtn" class="secondary">Telephone Mode</button>
+        <button id="podBtn" class="secondary">Podcast Mode</button>
+        <button id="recBtn" class="secondary">Start Recording</button>
+        <button id="saveBtn" class="secondary" disabled>Save Recordings</button>
+        <button id="playRawBtn" class="secondary" disabled>Play Raw</button>
+        <button id="playFiltBtn" class="secondary" disabled>Play Filtered</button>
+      </div>
+
+      <div class="status" id="status">Ready.</div>
+    </div>
+
+    <div class="plots">
+      <div class="plot">
+        <label>Live Spectrogram (filtered)</label>
+        <canvas id="spectrogram" width="1024" height="256"></canvas>
+      </div>
+      <div class="plot">
+        <label>Live Waveform (filtered)</label>
+        <canvas id="waveform" width="1024" height="256"></canvas>
+      </div>
+      <div class="plot" style="grid-column:1 / -1;">
+        <label>Filter Frequency Response</label>
+        <canvas id="response" width="1200" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=1" defer></script>
+</body>
+</html>
