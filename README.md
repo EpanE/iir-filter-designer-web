@@ -2,8 +2,7 @@
 
 A browser-based **IIR speech processing** tool built with the **Web Audio API**. Use cascaded biquads for HP/LP filtering, add a mains **notch** (50/60 Hz), visualize **waveform, spectrogram, magnitude & phase**, and **record** raw vs filtered audio — all client-side. Works on GitHub Pages and supports **offline/PWA**.
 
-**Live site:** https://<your-username>.github.io/<your-iir-repo>  
-*(Replace with your Pages URL.)*
+**Live site:** https://epane.github.io/fir-filter-designer-web/?v=14
 
 ---
 
