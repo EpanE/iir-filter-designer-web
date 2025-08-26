@@ -29,8 +29,3 @@ A browser-based **IIR speech processing** tool built with the **Web Audio API**.
 4. Tweak cutoffs/orders, toggle **Apply Notch**, and watch the plots update.
 5. Use **Start Recording** → **Stop Recording** → **Save Recordings** to download WAVs.
 
-### Local (optional)
-Serve the folder as a static site:
-```bash
-python -m http.server 8000
-# open http://localhost:8000
