@@ -1,9 +1,9 @@
 // sw.js
-const CACHE_NAME = 'iir-app-v9';  // <— bump this whenever you ship
+const CACHE_NAME = 'iir-app-v10';  // <— bump this whenever you ship
 const ASSETS = [
   './',
   './index.html',
-  './app.js?v=9',               // keep in sync with index.html
+  './app.js?v=10',               // keep in sync with index.html
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -38,7 +38,7 @@ self.addEventListener('fetch', (evt) => {
   // Only handle same-origin requests
   if (url.origin !== location.origin) return;
 
-  if (url.pathname.endsWith('/app.js') || url.pathname.endsWith('/app.js?v=9')) {
+  if (url.pathname.endsWith('/app.js') || url.pathname.endsWith('/app.js?v=10')) {
     evt.respondWith(
       fetch(req)
         .then((resp) => {
