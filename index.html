@@ -5,210 +5,221 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>IIR Speech Filter (Web)</title>
 
-  <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
-  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <!-- PWA -->
+  <link rel="manifest" href="./manifest.webmanifest">
   <meta name="theme-color" content="#0b1220" />
+  <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
+  <link rel="apple-touch-icon" sizes="512x512" href="./icons/icon-512.png">
 
   <style>
     :root{
-      --bg:#0b1220; --card:#121a2b; --muted:#94a3b8; --text:#e2e8f0; --accent:#60a5fa; --border:rgba(255,255,255,.08);
+      --bg:#0b1220; --card:#121a2b; --muted:#94a3b8; --text:#e2e8f0; --accent:#60a5fa; --border:rgba(255,255,255,.08)
     }
     html[data-theme="light"]{
-      --bg:#f8fafc; --card:#ffffff; --muted:#475569; --text:#0f172a; --accent:#2563eb; --border:rgba(15,23,42,.12);
+      --bg:#f7fafc; --card:#ffffff; --muted:#475569; --text:#0f172a; --accent:#2563eb; --border:rgba(0,0,0,.08)
     }
     *{box-sizing:border-box}
-    body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif}
     .wrap{max-width:1200px;margin:24px auto;padding:0 16px}
-    .titlebar{display:flex;gap:12px;align-items:center;justify-content:space-between}
-    .title{font-size:28px;font-weight:700;margin:0}
+    .header{display:flex;align-items:center;gap:8px;justify-content:space-between;margin-bottom:10px}
+    .title{font-size:22px;font-weight:800}
     .actions{display:flex;gap:8px}
-    .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px}
-    label{display:block;font-size:12px;color:var(--muted);margin:0 0 6px}
-    input,select,button{font:inherit}
-    input,select{
-      width:100%;background:transparent;border:1px solid var(--border);color:var(--text);
-      border-radius:10px;padding:8px 10px;
+    button, .btn{
+      background:linear-gradient(180deg,#1e3a8a,#1d4ed8); color:#fff; border:none; padding:8px 12px;
+      border-radius:12px; cursor:pointer; font-weight:600
     }
-    input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(96,165,250,.2)}
-    .btn{background:linear-gradient(180deg,#1e3a8a,#1d4ed8);border:none;color:#fff;padding:9px 12px;border-radius:12px;cursor:pointer;font-weight:600}
-    .btn.secondary{background:transparent;border:1px solid var(--border);color:var(--text)}
-    .btn.ghost{background:transparent;border:none}
-    .grid{display:grid;gap:12px}
-    .grid.cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}
-    .row{display:flex;gap:10px;flex-wrap:wrap}
-    .checkbox{display:flex;align-items:center;gap:8px}
-    .status{color:var(--muted);margin-top:8px;font-size:14px}
-    canvas{width:100%;height:240px;background:transparent;border:1px solid var(--border);border-radius:10px}
-    .plots{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
-    .plots .wide{grid-column:1 / -1}
-    .helpbar{margin:6px 0 10px;display:flex;justify-content:flex-end}
-    .tip{color:var(--muted);font-size:12px}
-    .warn{color:#fbbf24}
-    .ok{color:#22c55e}
+    button.secondary{background:#0e1626; border:1px solid var(--border); color:var(--text)}
+    button.ghost{background:transparent; border:1px solid var(--border); color:var(--text)}
+    button:disabled{opacity:.55; cursor:not-allowed}
+    .card{background:var(--card); border:1px solid var(--border); border-radius:16px; padding:12px}
+    .grid{display:grid; gap:12px}
+    .grid.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .grid.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .controls{display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:10px}
+    .field{display:flex; flex-direction:column; gap:6px}
+    label{font-size:12px; color:var(--muted)}
+    input[type="number"], select{
+      width:100%; background:#0e1626; color:var(--text); border:1px solid var(--border); border-radius:10px; padding:8px 10px
+    }
+    html[data-theme="light"] input[type="number"], html[data-theme="light"] select{background:#f1f5f9}
+    .switches{display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin-top:6px}
+    .hint{color:var(--muted); font-size:13px; margin-top:6px}
+    .btnrow{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
+    .panelTitle{font-size:13px; color:var(--muted); margin:0 0 6px}
+    canvas{width:100%; height:280px; display:block; background:#0e1626; border:1px solid var(--border); border-radius:10px}
+    html[data-theme="light"] canvas{background:#f8fafc}
+    .twoCols{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+    .oneCol{display:block}
+    @media (max-width: 980px){ .controls{grid-template-columns:repeat(3,minmax(0,1fr))} .twoCols{grid-template-columns:1fr} }
+    @media (max-width: 640px){
+      .controls{grid-template-columns:1fr 1fr}
+      .btnrow{flex-direction:column; align-items:stretch}
+    }
 
-    /* Modal */
-    .backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:50}
-    .modal{background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:14px;max-width:760px;width:92%;padding:16px}
-    .modal h2{margin:0 0 8px}
-    .modal p,.modal li{color:var(--muted)}
-    .modal .actions{display:flex;justify-content:flex-end;margin-top:12px}
-
-    @media (max-width: 900px){ .grid.cols-4{grid-template-columns:1fr 1fr} .plots{grid-template-columns:1fr} }
-    @media (max-width: 520px){ .grid.cols-4{grid-template-columns:1fr} }
+    /* Help modal */
+    .modalBackdrop{position:fixed; inset:0; background:rgba(0,0,0,.6); display:none}
+    .modal{position:fixed; inset:0; display:none; align-items:center; justify-content:center; padding:20px}
+    .modalCard{max-width:780px; width:100%; background:var(--card); border:1px solid var(--border); border-radius:16px; padding:16px}
+    .modalHeader{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px}
+    .closeX{background:transparent; border:1px solid var(--border); border-radius:10px; padding:6px 10px; cursor:pointer; color:var(--text)}
+    .kbd{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size:12px; background:#0e1626; color:var(--text); padding:2px 6px; border-radius:6px; border:1px solid var(--border)}
+    html[data-theme="light"] .kbd{background:#eef2f7}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <div class="titlebar">
-      <h1 class="title">IIR Speech Filter (Web)</h1>
+    <div class="header">
+      <div class="title">IIR Speech Filter (Web)</div>
       <div class="actions">
-        <button id="themeBtn" class="btn secondary" title="Toggle light/dark">Light/Dark</button>
-        <button id="helpBtn" class="btn secondary">Help</button>
+        <button id="themeToggle" class="ghost">Light/Dark</button>
+        <button id="helpBtn" class="ghost">Help</button>
       </div>
     </div>
 
-    <div class="card">
-      <div class="grid cols-4">
-        <div>
-          <label>Highpass Cutoff (Hz)</label>
-          <input id="hpCut" type="number" min="20" max="20000" value="300" />
+    <div class="card" id="controlCard">
+      <div class="controls">
+        <div class="field">
+          <label for="hpCut">Highpass Cutoff (Hz)</label>
+          <input id="hpCut" type="number" value="300" step="1" min="0">
         </div>
-        <div>
-          <label>Lowpass Cutoff (Hz)</label>
-          <input id="lpCut" type="number" min="100" max="20000" value="3400" />
+        <div class="field">
+          <label for="lpCut">Lowpass Cutoff (Hz)</label>
+          <input id="lpCut" type="number" value="3400" step="1" min="0">
         </div>
-        <div>
-          <label>HP/LP Order</label>
-          <select id="order">
-            <option>2</option><option selected>4</option><option>6</option><option>8</option>
+        <div class="field">
+          <label for="orderSel">HP/LP Order</label>
+          <select id="orderSel">
+            <option value="2">2</option>
+            <option value="4" selected>4</option>
+            <option value="6">6</option>
+            <option value="8">8</option>
           </select>
         </div>
-        <div>
-          <label>Notch Freq (Hz)</label>
-          <input id="notchFreq" type="number" min="20" max="1000" value="50" />
+        <div class="field">
+          <label for="notchFreq">Notch Freq (Hz)</label>
+          <input id="notchFreq" type="number" value="50" step="1" min="20" max="100">
         </div>
-      </div>
-
-      <div class="grid cols-4" style="margin-top:8px;">
-        <div>
-          <label>Notch Q</label>
-          <input id="notchQ" type="number" min="1" max="80" value="30" />
+        <div class="field">
+          <label for="notchQ">Notch Q</label>
+          <input id="notchQ" type="number" value="30" step="1" min="5" max="120">
         </div>
-        <div>
-          <label>WAV Save Rate</label>
+        <div class="field">
+          <label for="wavRate">WAV Save Rate</label>
           <select id="wavRate">
             <option value="auto" selected>Auto (native)</option>
-            <option value="16000">16,000 Hz</option>
+            <option value="16000">16k (speech)</option>
           </select>
         </div>
-        <div class="checkbox" style="margin-top:22px">
-          <input id="enableFilter" type="checkbox" checked />
-          <label for="enableFilter">Enable IIR Filter</label>
-        </div>
-        <div class="checkbox" style="margin-top:22px">
-          <input id="lowpassOnly" type="checkbox" />
-          <label for="lowpassOnly">Lowpass Only</label>
-        </div>
       </div>
 
-      <div class="row" style="margin-top:6px;">
-        <label class="checkbox"><input id="applyNotch" type="checkbox" /> <span>Apply Notch</span></label>
-        <label class="checkbox"><input id="showPhase" type="checkbox" /> <span>Show Phase Response</span></label>
-        <span id="fsTip" class="tip" style="margin-left:auto">fs: —</span>
+      <div class="switches">
+        <label><input id="applyNotch" type="checkbox"> Apply Notch</label>
+        <label><input id="showPhase" type="checkbox"> Show Phase Response</label>
+        <label><input id="enableIIR" type="checkbox" checked> Enable IIR Filter</label>
+        <label><input id="lowpassOnly" type="checkbox"> Lowpass Only</label>
+        <span class="hint">fs = <span id="fsLabel">—</span></span>
       </div>
 
-      <div class="row" style="margin-top:10px;">
-        <button id="startBtn" class="btn">Start Mic</button>
-        <button id="stopBtn" class="btn secondary">Stop Mic</button>
-        <button id="recStart" class="btn secondary">Start Recording</button>
-        <button id="recStop" class="btn secondary">Stop Recording</button>
-        <button id="saveBtn" class="btn secondary">Save Recordings</button>
-        <button id="playRaw" class="btn secondary">Play Raw</button>
-        <button id="playFiltered" class="btn secondary">Play Filtered</button>
+      <div class="btnrow">
+        <button id="startMic">Start Mic</button>
+        <button id="stopMic" class="secondary">Stop Mic</button>
+        <button id="startRec" class="secondary">Start Recording</button>
+        <button id="stopRec" class="secondary">Stop Recording</button>
+        <button id="saveRec" class="secondary">Save Recordings</button>
+        <button id="playRaw" class="secondary">Play Raw</button>
+        <button id="playFiltered" class="secondary">Play Filtered</button>
       </div>
 
-      <div id="status" class="status">Ready. Click <b>Start Mic</b> and allow microphone access.</div>
-      <div id="hint" class="status"></div>
+      <div class="hint" id="hint">Ready. Click “Start Mic” and allow microphone access.</div>
     </div>
 
-    <div class="plots">
-      <div class="card"><label>Spectrogram (filtered)</label><canvas id="spec"></canvas></div>
-      <div class="card"><label>Waveform (filtered)</label><canvas id="wave"></canvas></div>
-      <div class="card wide"><label>Magnitude Response (dB)</label><canvas id="mag"></canvas></div>
-      <div class="card"><label>Phase Response (deg)</label><canvas id="phase"></canvas></div>
+    <div class="grid" style="margin-top:12px;">
+      <div class="twoCols">
+        <div class="card">
+          <div class="panelTitle">Spectrogram (filtered)</div>
+          <canvas id="specCanvas" width="800" height="280"></canvas>
+        </div>
+        <div class="card">
+          <div class="panelTitle">Waveform (filtered)</div>
+          <canvas id="waveCanvas" width="800" height="280"></canvas>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="panelTitle">Magnitude Response (dB)</div>
+        <canvas id="magCanvas" width="1100" height="280"></canvas>
+      </div>
+
+      <div class="card">
+        <div class="panelTitle">Phase Response (deg)</div>
+        <canvas id="phaseCanvas" width="1100" height="220"></canvas>
+      </div>
     </div>
   </div>
 
-  <!-- Help modal -->
-  <div id="helpBackdrop" class="backdrop" aria-hidden="true">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="iirHelpTitle">
-      <h2 id="iirHelpTitle">How to use — IIR Speech Filter</h2>
-
-      <h3>Quick start</h3>
-      <ol>
-        <li>Plug in <b>headphones</b> to avoid feedback.</li>
-        <li>Click <b>Start Mic</b> and allow microphone access.</li>
-        <li>Choose settings:
-          <ul>
-            <li><b>Enable IIR Filter</b>, <b>Lowpass Only</b> (optional), <b>Apply Notch</b> (50/60 Hz).</li>
-            <li><b>HP/LP Order</b>: 2/4/6/8 (cascaded biquads).</li>
-            <li><b>Show Phase Response</b> to view unwrapped phase.</li>
-          </ul>
-        </li>
-        <li>Use presets: <b>Telephone</b> (300–3400 Hz) or <b>Podcast</b> (80–8000 Hz).</li>
-      </ol>
-
-      <h3>Recording & saving</h3>
-      <ol>
-        <li>Click <b>Start Recording</b> (records RAW and FILTERED).</li>
-        <li><b>Stop Recording</b> → <b>Save Recordings</b> to download WAV files.</li>
-        <li><b>WAV rate</b>: <i>Auto</i> (native) or <i>16,000 Hz</i> (resampled) for speech.</li>
-      </ol>
-
-      <h3>Troubleshooting</h3>
-      <ul>
-        <li>No audio? Ensure mic permission and that the tab isn’t muted.</li>
-        <li>Echo/feedback? Use headphones, lower speaker volume.</li>
-        <li>Notch not effective? Confirm mains (50 vs 60 Hz) and increase <b>Q</b>.</li>
-      </ul>
-
-      <div class="actions"><button id="helpClose" class="btn secondary">Close</button></div>
+  <!-- Help Modal -->
+  <div id="helpBackdrop" class="modalBackdrop"></div>
+  <div id="helpModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <div class="modalCard">
+      <div class="modalHeader">
+        <h3 id="helpTitle" style="margin:0">How to Use</h3>
+        <button id="helpClose" class="closeX">Close</button>
+      </div>
+      <div style="color:var(--muted); font-size:14px; line-height:1.5">
+        <ol>
+          <li>Click <span class="kbd">Start Mic</span> and allow microphone access.</li>
+          <li>Put on <b>headphones</b> to prevent feedback loops.</li>
+          <li>Adjust <b>Highpass / Lowpass</b> and <b>Order</b>. Toggle <b>Apply Notch</b> for 50/60 Hz hum.</li>
+          <li>Use <span class="kbd">Start Recording</span> → <span class="kbd">Stop Recording</span> → <span class="kbd">Save Recordings</span> to download WAV files (raw & filtered).</li>
+          <li>Pick a WAV save rate: <b>Auto</b> (native) or <b>16k</b> for speech.</li>
+        </ol>
+        <p><b>Troubleshooting</b></p>
+        <ul>
+          <li>No audio? Ensure HTTPS, allow mic permissions, and unmute the tab.</li>
+          <li>Cutoff warnings show when values exceed <b>Nyquist</b> (fs/2).</li>
+          <li>On iOS, tap Save again if the download didn’t appear.</li>
+        </ul>
+        <p><b>Privacy:</b> All processing & recording happen in your browser; nothing is uploaded.</p>
+      </div>
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <!-- App + SW (version your assets to bust caches) -->
+  <script defer src="./app.js?v=9"></script>
   <script>
-    // Theme toggle + persistence
+    // Theme
     (function(){
       const root = document.documentElement;
-      const btn = document.getElementById('themeBtn');
-      const saved = localStorage.getItem('theme');
-      const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
-      if(saved){ root.setAttribute('data-theme', saved); }
-      else{ root.setAttribute('data-theme', prefersLight ? 'light' : 'dark'); }
-      btn.addEventListener('click', () => {
-        const cur = root.getAttribute('data-theme');
-        const nxt = cur === 'light' ? 'dark' : 'light';
-        root.setAttribute('data-theme', nxt);
-        localStorage.setItem('theme', nxt);
+      const key = 'iir_theme';
+      const saved = localStorage.getItem(key);
+      if (saved) root.setAttribute('data-theme', saved);
+      document.getElementById('themeToggle').addEventListener('click', () => {
+        const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        root.setAttribute('data-theme', next);
+        localStorage.setItem(key, next);
       });
     })();
 
     // Help modal
     (function(){
-      const bd=document.getElementById('helpBackdrop');
-      const open=()=>{ bd.style.display='flex'; bd.setAttribute('aria-hidden','false'); };
-      const close=()=>{ bd.style.display='none'; bd.setAttribute('aria-hidden','true'); };
+      const modal = document.getElementById('helpModal');
+      const backdrop = document.getElementById('helpBackdrop');
+      const open = () => { modal.style.display='flex'; backdrop.style.display='block'; };
+      const close = () => { modal.style.display='none'; backdrop.style.display='none'; };
       document.getElementById('helpBtn').addEventListener('click', open);
       document.getElementById('helpClose').addEventListener('click', close);
-      bd.addEventListener('click', e=>{ if(e.target===bd) close(); });
-      window.addEventListener('keydown', e=>{ if(e.key==='Escape') close(); });
+      backdrop.addEventListener('click', close);
     })();
 
-    // Register SW (PWA)
-    if('serviceWorker' in navigator){
-      window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js'));
+    // Service worker
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js?v=9')
+          .then(reg => console.log('SW registered:', reg.scope))
+          .catch(err => console.error('SW registration failed', err));
+      });
     }
   </script>
 </body>
