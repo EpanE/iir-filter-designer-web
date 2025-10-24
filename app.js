@@ -1,30 +1,32 @@
 // IIR Speech Filter — WebAudio implementation with recording and plots
 
+const byId = id => document.getElementById(id);
+
 const els = {
-  hpCut:      document.getElementById('hpCut'),
-  lpCut:      document.getElementById('lpCut'),
-  order:      document.getElementById('order'),
-  notchFreq:  document.getElementById('notchFreq'),
-  notchQ:     document.getElementById('notchQ'),
-  wavRate:    document.getElementById('wavRate'),
-  enable:     document.getElementById('enableFilter'),
-  lpOnly:     document.getElementById('lowpassOnly'),
-  notch:      document.getElementById('applyNotch'),
-  showPhase:  document.getElementById('showPhase'),
-  startBtn:   document.getElementById('startBtn'),
-  stopBtn:    document.getElementById('stopBtn'),
-  recStart:   document.getElementById('recStart'),
-  recStop:    document.getElementById('recStop'),
-  saveBtn:    document.getElementById('saveBtn'),
-  playRaw:    document.getElementById('playRaw'),
-  playFiltered: document.getElementById('playFiltered'),
-  status:     document.getElementById('status'),
-  hint:       document.getElementById('hint'),
-  fsTip:      document.getElementById('fsTip'),
-  cSpec:      document.getElementById('spec'),
-  cWave:      document.getElementById('wave'),
-  cMag:       document.getElementById('mag'),
-  cPhase:     document.getElementById('phase'),
+  hpCut:      byId('hpCut'),
+  lpCut:      byId('lpCut'),
+  order:      byId('order'),
+  notchFreq:  byId('notchFreq'),
+  notchQ:     byId('notchQ'),
+  wavRate:    byId('wavRate'),
+  enable:     byId('enableFilter'),
+  lpOnly:     byId('lowpassOnly'),
+  notch:      byId('applyNotch'),
+  showPhase:  byId('showPhase'),
+  startBtn:   byId('startBtn'),
+  stopBtn:    byId('stopBtn'),
+  recStart:   byId('recStart'),
+  recStop:    byId('recStop'),
+  saveBtn:    byId('saveBtn'),
+  playRaw:    byId('playRaw'),
+  playFiltered: byId('playFiltered'),
+  status:     byId('status'),
+  hint:       byId('hint'),
+  fsTip:      byId('fsTip'),
+  cSpec:      byId('spec'),
+  cWave:      byId('wave'),
+  cMag:       byId('mag'),
+  cPhase:     byId('phase'),
 };
 
 let ctx, src, stream, analyserTime, analyserFreq;
@@ -36,8 +38,8 @@ let running = false;
 let rawDest, filtDest, recRaw, recFilt, rawChunks=[], filtChunks=[];
 let lastRawBlob=null, lastFiltBlob=null;
 
-function setStatus(msg){ els.status.innerHTML = msg; }
-function setHint(msg, ok=false){ els.hint.innerHTML = msg ? `<span class="${ok?'ok':'warn'}">${msg}</span>` : ''; }
+function setStatus(msg){ if(els.status) els.status.innerHTML = msg; }
+function setHint(msg, ok=false){ if(els.hint) els.hint.innerHTML = msg ? `<span class="${ok?'ok':'warn'}">${msg}</span>` : ''; }
 
 function clampCutoffs(){
   if(!ctx) return;
@@ -127,11 +129,11 @@ function rebuildChain(){
   last.connect(ctx.destination);
 
   // to filtered recorder
-  if(!filtDest) filtDest = new MediaStreamDestination(ctx);
+  if(!filtDest) filtDest = ctx.createMediaStreamDestination();
   last.connect(filtDest);
 
   // raw recorder split
-  if(!rawDest) rawDest = new MediaStreamDestination(ctx);
+  if(!rawDest) rawDest = ctx.createMediaStreamDestination();
   src.connect(rawDest);
 
   drawResponses(); // recalc response curves immediately
@@ -442,28 +444,69 @@ async function saveRecordings(){
 // ------- Events & lifecycle -------
 
 async function startMic(){
-  if(running) return;
-  stream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      echoCancellation:false, noiseSuppression:false, autoGainControl:false
-    }
-  });
-  ctx = new (window.AudioContext || window.webkitAudioContext)();
-  src = ctx.createMediaStreamSource(stream);
+  if(running){ setStatus('Mic already running.'); return; }
+
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    setStatus('Microphone not supported in this browser.');
+    return;
+  }
+
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation:false, noiseSuppression:false, autoGainControl:false
+      }
+    });
+  }catch(err){
+    console.error('getUserMedia failed', err);
+    setStatus('Unable to access the microphone. Please allow mic permissions.');
+    return;
+  }
+
+  try{
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    src = ctx.createMediaStreamSource(stream);
+  }catch(err){
+    console.error('AudioContext failed', err);
+    setStatus('Audio system unavailable. Try a different browser.');
+    stopMic();
+    return;
+  }
+
   els.fsTip.textContent = `fs: ${ctx.sampleRate} Hz`;
 
   // Setup recorders
-  rawDest = ctx.createMediaStreamDestination();
-  filtDest = ctx.createMediaStreamDestination();
-  src.connect(rawDest);
+  recRaw = null;
+  recFilt = null;
+  rawDest = null;
+  filtDest = null;
+  try{
+    rawDest = ctx.createMediaStreamDestination();
+    filtDest = ctx.createMediaStreamDestination();
+    src.connect(rawDest);
 
-  recRaw = new MediaRecorder(rawDest.stream);
-  recFilt = new MediaRecorder(filtDest.stream);
+    if(typeof MediaRecorder === 'undefined'){
+      throw new Error('MediaRecorder unsupported');
+    }
+
+    recRaw = new MediaRecorder(rawDest.stream);
+    recFilt = new MediaRecorder(filtDest.stream);
+  }catch(err){
+    console.error('Recorder setup failed', err);
+    setStatus('Recording not supported in this environment.');
+    filtDest = null;
+    rawDest = null;
+  }
+
   rawChunks = []; filtChunks = [];
-  recRaw.ondataavailable = e=> { if(e.data.size) rawChunks.push(e.data); };
-  recFilt.ondataavailable = e=> { if(e.data.size) filtChunks.push(e.data); };
-  recRaw.onstop = ()=> { lastRawBlob = new Blob(rawChunks, { type: rawChunks[0]?.type || 'audio/webm' }); };
-  recFilt.onstop = ()=> { lastFiltBlob = new Blob(filtChunks, { type: filtChunks[0]?.type || 'audio/webm' }); };
+  if(recRaw){
+    recRaw.ondataavailable = e=> { if(e.data.size) rawChunks.push(e.data); };
+    recRaw.onstop = ()=> { lastRawBlob = new Blob(rawChunks, { type: rawChunks[0]?.type || 'audio/webm' }); };
+  }
+  if(recFilt){
+    recFilt.ondataavailable = e=> { if(e.data.size) filtChunks.push(e.data); };
+    recFilt.onstop = ()=> { lastFiltBlob = new Blob(filtChunks, { type: filtChunks[0]?.type || 'audio/webm' }); };
+  }
 
   rebuildChain();
   running = true;
@@ -496,9 +539,11 @@ function recStop(){
 }
 
 // UI bindings
-['hpCut','lpCut','order','notchFreq','notchQ','enableFilter','lowpassOnly','applyNotch','showPhase']
-  .forEach(id=>{
-    els[id].addEventListener('input', ()=>{
+['hpCut','lpCut','order','notchFreq','notchQ','enable','lpOnly','notch','showPhase']
+  .forEach(key=>{
+    const el = els[key];
+    if(!el) return;
+    el.addEventListener('input', ()=>{
       clampCutoffs();
       if(ctx) rebuildChain();
     });

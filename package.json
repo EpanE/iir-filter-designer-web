@@ -1,0 +1,12 @@
+{
+  "name": "iir-filter-designer-web",
+  "version": "1.0.0",
+  "description": "IIR Speech Filter web app",
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "GPL-3.0-or-later",
+  "type": "commonjs"
+}

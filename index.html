@@ -89,8 +89,8 @@
           <input id="lpCut" type="number" value="3400" step="1" min="0">
         </div>
         <div class="field">
-          <label for="orderSel">HP/LP Order</label>
-          <select id="orderSel">
+          <label for="order">HP/LP Order</label>
+          <select id="order">
             <option value="2">2</option>
             <option value="4" selected>4</option>
             <option value="6">6</option>
@@ -117,44 +117,45 @@
       <div class="switches">
         <label><input id="applyNotch" type="checkbox"> Apply Notch</label>
         <label><input id="showPhase" type="checkbox"> Show Phase Response</label>
-        <label><input id="enableIIR" type="checkbox" checked> Enable IIR Filter</label>
+        <label><input id="enableFilter" type="checkbox" checked> Enable IIR Filter</label>
         <label><input id="lowpassOnly" type="checkbox"> Lowpass Only</label>
-        <span class="hint">fs = <span id="fsLabel">—</span></span>
+        <span class="hint">fs = <span id="fsTip">—</span></span>
       </div>
 
-      <div class="btnrow">
-        <button id="startMic">Start Mic</button>
-        <button id="stopMic" class="secondary">Stop Mic</button>
-        <button id="startRec" class="secondary">Start Recording</button>
-        <button id="stopRec" class="secondary">Stop Recording</button>
-        <button id="saveRec" class="secondary">Save Recordings</button>
-        <button id="playRaw" class="secondary">Play Raw</button>
-        <button id="playFiltered" class="secondary">Play Filtered</button>
-      </div>
+        <div class="btnrow">
+          <button id="startBtn">Start Mic</button>
+          <button id="stopBtn" class="secondary">Stop Mic</button>
+          <button id="recStart" class="secondary">Start Recording</button>
+          <button id="recStop" class="secondary">Stop Recording</button>
+          <button id="saveBtn" class="secondary">Save Recordings</button>
+          <button id="playRaw" class="secondary">Play Raw</button>
+          <button id="playFiltered" class="secondary">Play Filtered</button>
+        </div>
 
-      <div class="hint" id="hint">Ready. Click “Start Mic” and allow microphone access.</div>
+        <div class="hint" id="status"></div>
+        <div class="hint" id="hint"></div>
     </div>
 
     <div class="grid" style="margin-top:12px;">
       <div class="twoCols">
         <div class="card">
           <div class="panelTitle">Spectrogram (filtered)</div>
-          <canvas id="specCanvas" width="800" height="280"></canvas>
+          <canvas id="spec" width="800" height="280"></canvas>
         </div>
         <div class="card">
           <div class="panelTitle">Waveform (filtered)</div>
-          <canvas id="waveCanvas" width="800" height="280"></canvas>
+          <canvas id="wave" width="800" height="280"></canvas>
         </div>
       </div>
 
       <div class="card">
         <div class="panelTitle">Magnitude Response (dB)</div>
-        <canvas id="magCanvas" width="1100" height="280"></canvas>
+        <canvas id="mag" width="1100" height="280"></canvas>
       </div>
 
       <div class="card">
         <div class="panelTitle">Phase Response (deg)</div>
-        <canvas id="phaseCanvas" width="1100" height="220"></canvas>
+        <canvas id="phase" width="1100" height="220"></canvas>
       </div>
     </div>
   </div>
