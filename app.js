@@ -3,28 +3,27 @@
 const els = {
   hpCut:      document.getElementById('hpCut'),
   lpCut:      document.getElementById('lpCut'),
-  order:      document.getElementById('order'),
+  orderSel:   document.getElementById('orderSel'),
   notchFreq:  document.getElementById('notchFreq'),
   notchQ:     document.getElementById('notchQ'),
   wavRate:    document.getElementById('wavRate'),
-  enable:     document.getElementById('enableFilter'),
+  enableIIR:  document.getElementById('enableIIR'),
   lpOnly:     document.getElementById('lowpassOnly'),
   notch:      document.getElementById('applyNotch'),
   showPhase:  document.getElementById('showPhase'),
-  startBtn:   document.getElementById('startBtn'),
-  stopBtn:    document.getElementById('stopBtn'),
-  recStart:   document.getElementById('recStart'),
-  recStop:    document.getElementById('recStop'),
-  saveBtn:    document.getElementById('saveBtn'),
+  startMic:   document.getElementById('startMic'),
+  stopMic:    document.getElementById('stopMic'),
+  startRec:   document.getElementById('startRec'),
+  stopRec:    document.getElementById('stopRec'),
+  saveRec:    document.getElementById('saveRec'),
   playRaw:    document.getElementById('playRaw'),
   playFiltered: document.getElementById('playFiltered'),
-  status:     document.getElementById('status'),
   hint:       document.getElementById('hint'),
-  fsTip:      document.getElementById('fsTip'),
-  cSpec:      document.getElementById('spec'),
-  cWave:      document.getElementById('wave'),
-  cMag:       document.getElementById('mag'),
-  cPhase:     document.getElementById('phase'),
+  fsLabel:    document.getElementById('fsLabel'),
+  cSpec:      document.getElementById('specCanvas'),
+  cWave:      document.getElementById('waveCanvas'),
+  cMag:       document.getElementById('magCanvas'),
+  cPhase:     document.getElementById('phaseCanvas'),
 };
 
 let ctx, src, stream, analyserTime, analyserFreq;
@@ -36,7 +35,7 @@ let running = false;
 let rawDest, filtDest, recRaw, recFilt, rawChunks=[], filtChunks=[];
 let lastRawBlob=null, lastFiltBlob=null;
 
-function setStatus(msg){ els.status.innerHTML = msg; }
+function setStatus(msg){ els.hint.innerHTML = msg || ''; }
 function setHint(msg, ok=false){ els.hint.innerHTML = msg ? `<span class="${ok?'ok':'warn'}">${msg}</span>` : ''; }
 
 function clampCutoffs(){
@@ -80,58 +79,60 @@ function rebuildChain(){
       if(filtDest) filtDest.disconnect();
     }catch(e){}
   }
-  const enable = els.enable.checked;
+  const enable = els.enableIIR.checked;
   const lpOnly = els.lpOnly.checked;
   const applyNotch = els.notch.checked;
 
   const hpCut = parseFloat(els.hpCut.value)||300;
   const lpCut = parseFloat(els.lpCut.value)||3400;
-  const ord   = parseInt(els.order.value,10) || 4;
+  const ord   = parseInt(els.orderSel.value,10) || 4;
   const nf    = parseFloat(els.notchFreq.value)||50;
   const nq    = parseFloat(els.notchQ.value)||30;
 
   const g = new GainNode(ctx, { gain: 1.0 });
-  let first = src;
-  let last = g;
+  let current = src;
+  let hp = [];
+  let lp = [];
+  let notch = null;
 
   if(enable){
     if(!lpOnly){
-      const hp = makeCascade('highpass', hpCut, ord);
-      first.connect(hp[0]); last = hp.at(-1);
-      // connect chain continuation
-      hp.at(-1).connect(g);
-      first = g;
+      hp = makeCascade('highpass', hpCut, ord);
+      current.connect(hp[0]);
+      current = hp[hp.length - 1];
     }
-    const lp = makeCascade('lowpass', lpCut, ord);
-    (first || src).connect(lp[0]); last = lp.at(-1);
+    lp = makeCascade('lowpass', lpCut, ord);
+    current.connect(lp[0]);
+    current = lp[lp.length - 1];
     if(applyNotch){
-      const notch = new BiquadFilterNode(ctx, { type:'notch', frequency:nf, Q:nq });
-      last.connect(notch); last = notch;
-      chain = { hp: lpOnly?[]:[], lp, notch, gain:g };
-    }else{
-      chain = { hp: lpOnly?[]:[], lp, notch:null, gain:g };
+      notch = new BiquadFilterNode(ctx, { type:'notch', frequency:nf, Q:nq });
+      current.connect(notch);
+      current = notch;
     }
+    current.connect(g);
+    current = g;
   }else{
-    chain = { hp:[], lp:[], notch:null, gain:g };
-    last = src;
+    // no filtering; pass-through
+    current = src;
   }
+  chain = { hp, lp, notch, gain:g, out: current };
 
   // Analysis + outputs
   analyserTime = new AnalyserNode(ctx, { fftSize: 2048, smoothingTimeConstant: 0.4 });
   analyserFreq = new AnalyserNode(ctx, { fftSize: 1024, smoothingTimeConstant: 0.5 });
 
-  last.connect(analyserTime);
-  last.connect(analyserFreq);
+  current.connect(analyserTime);
+  current.connect(analyserFreq);
 
   // to speakers
-  last.connect(ctx.destination);
+  current.connect(ctx.destination);
 
   // to filtered recorder
-  if(!filtDest) filtDest = new MediaStreamDestination(ctx);
-  last.connect(filtDest);
+  if(!filtDest) filtDest = ctx.createMediaStreamDestination();
+  current.connect(filtDest);
 
   // raw recorder split
-  if(!rawDest) rawDest = new MediaStreamDestination(ctx);
+  if(!rawDest) rawDest = ctx.createMediaStreamDestination();
   src.connect(rawDest);
 
   drawResponses(); // recalc response curves immediately
@@ -450,7 +451,7 @@ async function startMic(){
   });
   ctx = new (window.AudioContext || window.webkitAudioContext)();
   src = ctx.createMediaStreamSource(stream);
-  els.fsTip.textContent = `fs: ${ctx.sampleRate} Hz`;
+  els.fsLabel.textContent = `${ctx.sampleRate} Hz`;
 
   // Setup recorders
   rawDest = ctx.createMediaStreamDestination();
@@ -496,7 +497,7 @@ function recStop(){
 }
 
 // UI bindings
-['hpCut','lpCut','order','notchFreq','notchQ','enableFilter','lowpassOnly','applyNotch','showPhase']
+['hpCut','lpCut','orderSel','notchFreq','notchQ','enableIIR','lowpassOnly','applyNotch','showPhase']
   .forEach(id=>{
     els[id].addEventListener('input', ()=>{
       clampCutoffs();
@@ -504,11 +505,11 @@ function recStop(){
     });
   });
 
-els.startBtn.addEventListener('click', startMic);
-els.stopBtn.addEventListener('click', stopMic);
-els.recStart.addEventListener('click', recStart);
-els.recStop.addEventListener('click', recStop);
-els.saveBtn.addEventListener('click', saveRecordings);
+els.startMic.addEventListener('click', startMic);
+els.stopMic.addEventListener('click', stopMic);
+els.startRec.addEventListener('click', recStart);
+els.stopRec.addEventListener('click', recStop);
+els.saveRec.addEventListener('click', saveRecordings);
 
 els.playRaw.addEventListener('click', ()=>{
   if(!lastRawBlob){ setStatus('No raw recording yet.'); return; }

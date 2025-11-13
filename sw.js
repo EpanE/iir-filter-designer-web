@@ -38,7 +38,7 @@ self.addEventListener('fetch', (evt) => {
   // Only handle same-origin requests
   if (url.origin !== location.origin) return;
 
-  if (url.pathname.endsWith('/app.js') || url.pathname.endsWith('/app.js?v=10')) {
+  if (url.pathname.endsWith('/app.js')) {
     evt.respondWith(
       fetch(req)
         .then((resp) => {
