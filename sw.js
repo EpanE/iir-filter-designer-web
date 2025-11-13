@@ -1,9 +1,9 @@
 // sw.js
-const CACHE_NAME = 'iir-app-v10';  // <— bump this whenever you ship
+const CACHE_NAME = 'iir-app-v11';  // <— bump this whenever you ship
 const ASSETS = [
   './',
   './index.html',
-  './app.js?v=10',               // keep in sync with index.html
+  './app.js?v=11',               // keep in sync with index.html
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
